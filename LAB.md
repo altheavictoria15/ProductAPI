@@ -85,6 +85,9 @@ For the create operation, include the `201 Created` response and the `Location` 
 
 Only tests that have actually been executed should be marked as completed. Add screenshots of the original baseline behavior and server logs if these are required by the lab instructions.
 
+The following PDF contains screenshots of the API tests performed using Swagger UI.
+View Swagger UI Test Screenshots
+
 ## Reflection
 
 Through this lab, I learned how to create CRUD endpoints in an ASP.NET Core Web API, validate incoming requests, implement custom exceptions, and handle errors centrally. I also learned how pagination returns data in manageable groups along with metadata. Swagger UI helped me execute requests and inspect the API responses during testing.
