@@ -1,4 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using ProductAPI.DTOs;
+using ProductAPI.Exceptions;
 using ProductAPI.Models;
 
 namespace ProductAPI.Controllers
@@ -7,17 +10,16 @@ namespace ProductAPI.Controllers
     [Route("api/[controller]")]
     public class ProductsController : ControllerBase
     {
-        private static List<Product> products = new List<Product>
+        private static readonly List<Product> products = new()
         {
             new Product
             {
                 ProductId = 1,
                 Code = "P001",
                 Name = "Bread",
-                Description = "Baked bread",
+                Description = "Freshly baked bread",
                 Price = 200.00m
             },
-
             new Product
             {
                 ProductId = 2,
@@ -26,7 +28,6 @@ namespace ProductAPI.Controllers
                 Description = "Fresh milk",
                 Price = 350.00m
             },
-
             new Product
             {
                 ProductId = 3,
@@ -35,7 +36,6 @@ namespace ProductAPI.Controllers
                 Description = "Jasmine rice",
                 Price = 500.00m
             },
-
             new Product
             {
                 ProductId = 4,
@@ -44,7 +44,6 @@ namespace ProductAPI.Controllers
                 Description = "Fresh eggs",
                 Price = 250.00m
             },
-
             new Product
             {
                 ProductId = 5,
@@ -55,65 +54,159 @@ namespace ProductAPI.Controllers
             }
         };
 
+        // GET: api/products?page=1&pageSize=10
         [HttpGet]
-        public IActionResult GetProducts()
+        public IActionResult GetProducts(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
         {
-            return Ok(products);
+            if (page < 1 || pageSize < 1 || pageSize > 100)
+            {
+                var problem = new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Invalid pagination settings",
+                    Detail = "Page must be at least 1, and pageSize must be between 1 and 100.",
+                    Instance = Request.Path
+                };
+
+                problem.Extensions["traceId"] =
+                    HttpContext.TraceIdentifier;
+
+                return BadRequest(problem);
+            }
+
+            var totalItems = products.Count;
+            var totalPages = (int)Math.Ceiling(
+                totalItems / (double)pageSize);
+
+            var pagedProducts = products
+                .OrderBy(product => product.ProductId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+
+            var response = new PagedResponse<Product>
+            {
+                Data = pagedProducts,
+                Meta = new PaginationMeta
+                {
+                    Page = page,
+                    PageSize = pageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
+            };
+
+            return Ok(response);
         }
 
-        [HttpGet("{id}")]
+        // GET: api/products/1
+        [HttpGet("{id:int}")]
         public IActionResult GetProduct(int id)
         {
-            var product = products.FirstOrDefault(p => p.ProductId == id);
+            var product = products.FirstOrDefault(
+                p => p.ProductId == id);
 
             if (product == null)
             {
-                return NotFound();
+                throw new NotFoundException(
+                    $"We couldn't find a product with ID {id}. " +
+                    "Check the product ID and try again.");
             }
 
             return Ok(product);
         }
 
+        // POST: api/products
         [HttpPost]
-        public IActionResult CreateProduct(Product product)
+        public IActionResult CreateProduct(
+            [FromBody] CreateProductRequest request)
         {
-            product.ProductId = products.Count + 1;
+            var duplicateCode = products.Any(
+                p => string.Equals(
+                    p.Code,
+                    request.Code,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (duplicateCode)
+            {
+                throw new ConflictException(
+                    $"The product code '{request.Code}' is already in use. " +
+                    "Please choose a different code.");
+            }
+
+            var newId = products.Count == 0
+                ? 1
+                : products.Max(p => p.ProductId) + 1;
+
+            var product = new Product
+            {
+                ProductId = newId,
+                Code = request.Code.Trim(),
+                Name = request.Name.Trim(),
+                Description = request.Description.Trim(),
+                Price = request.Price
+            };
 
             products.Add(product);
 
             return CreatedAtAction(
                 nameof(GetProduct),
                 new { id = product.ProductId },
-                product
-            );
+                product);
         }
 
-        [HttpPut("{id}")]
-        public IActionResult UpdateProduct(int id, Product updatedProduct)
+        // PUT: api/products/1
+        [HttpPut("{id:int}")]
+        public IActionResult UpdateProduct(
+            int id,
+            [FromBody] UpdateProductRequest request)
         {
-            var product = products.FirstOrDefault(p => p.ProductId == id);
+            var product = products.FirstOrDefault(
+                p => p.ProductId == id);
 
             if (product == null)
             {
-                return NotFound();
+                throw new NotFoundException(
+                    $"We couldn't update product ID {id} because it doesn't exist. " +
+                    "Check the product ID and try again.");
             }
 
-            product.Code = updatedProduct.Code;
-            product.Name = updatedProduct.Name;
-            product.Description = updatedProduct.Description;
-            product.Price = updatedProduct.Price;
+            var duplicateCode = products.Any(
+                p => p.ProductId != id &&
+                     string.Equals(
+                         p.Code,
+                         request.Code,
+                         StringComparison.OrdinalIgnoreCase));
+
+            if (duplicateCode)
+            {
+                throw new ConflictException(
+                    $"The product code '{request.Code}' belongs to another product. " +
+                    "Please choose a different code.");
+            }
+
+            product.Code = request.Code.Trim();
+            product.Name = request.Name.Trim();
+            product.Description = request.Description.Trim();
+            product.Price = request.Price;
 
             return Ok(product);
         }
 
-        [HttpDelete("{id}")]
+        // DELETE: api/products/1
+        [HttpDelete("{id:int}")]
         public IActionResult DeleteProduct(int id)
         {
-            var product = products.FirstOrDefault(p => p.ProductId == id);
+            var product = products.FirstOrDefault(
+                p => p.ProductId == id);
 
             if (product == null)
             {
-                return NotFound();
+                throw new NotFoundException(
+                    $"We couldn't delete product ID {id} because it doesn't exist. " +
+                    "Check the product ID and try again.");
             }
 
             products.Remove(product);
